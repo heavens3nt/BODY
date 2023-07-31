@@ -1,0 +1,184 @@
+import telebot
+from telebot import types
+
+# Create an instance of the TeleBot class with your bot token
+bot = telebot.TeleBot('6013072297:AAFQkgN1SQDLbLs-4imsdD6KpKyNZiqD048')
+
+# Define your group chat ID
+group_chat_id = -969258953  # Replace with your actual group chat ID
+
+item_description = ""
+buyer_or_seller = ""
+amount = 0
+
+
+@bot.message_handler(commands=['start'])
+def start_command(message):
+    user = message.from_user
+    first_name = user.first_name
+    last_name = user.last_name if user.last_name else ''
+    welcome_message = f"<b>Welcome to Escrow Bot, {first_name} {last_name}!</b>\n\n" \
+                      "The purpose of the bot 🤖 is to create a safe trade environment for both seller and buyer subjected to the rules of the escrow. " \
+                      "Kindly read the <b>Rules</b> and <b>Escrow bot guide</b> in the <b>Help</b> section before creating a new escrow."
+
+    # Create a custom keyboard markup
+    markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
+    join_group_button = types.KeyboardButton("Join Group")
+    escrow_guide_button = types.KeyboardButton("Escrow bot guide")
+    start_escrow_button = types.KeyboardButton("Start Escrow")
+    terms_rules_button = types.KeyboardButton("(Terms and Rules)")
+    help_button = types.KeyboardButton("Help")
+    markup.add(join_group_button, escrow_guide_button)
+    markup.add(start_escrow_button, terms_rules_button)
+    markup.add(help_button)
+
+    bot.send_message(message.chat.id, welcome_message, parse_mode='HTML', reply_markup=markup)
+
+
+@bot.message_handler(func=lambda message: message.text == "Start Escrow")
+def start_escrow_handler(message):
+    accept_button = types.KeyboardButton("Accept ✅")
+    decline_button = types.KeyboardButton("Decline ❌")
+    markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
+    markup.add(accept_button, decline_button)
+
+    accept_message = "To continue using Escrow, please read and accept the <b>Terms and Conditions</b> " \
+                     "of Escrowcoins bot.\n\nDo you accept?"
+    bot.send_message(message.chat.id, accept_message, parse_mode='HTML', reply_markup=markup)
+
+
+@bot.message_handler(func=lambda message: message.text == "Decline ❌")
+def decline_handler(message):
+    start_command(message)  # Go back to the start menu
+
+
+@bot.message_handler(func=lambda message: message.text == "Accept ✅")
+def accept_handler(message):
+    buyer_button = types.KeyboardButton("Buyer")
+    seller_button = types.KeyboardButton("Seller")
+    markup = types.ReplyKeyboardMarkup(row_width=1, resize_keyboard=True)
+    markup.add(buyer_button, seller_button)
+
+    role_message = "Are you the buyer or seller?"
+    bot.send_message(message.chat.id, role_message, reply_markup=markup)
+
+
+@bot.message_handler(func=lambda message: message.text == "Buyer" or message.text == "Seller")
+def buyer_seller_handler(message):
+    global buyer_or_seller
+
+    buyer_or_seller = message.text.lower()
+
+    if buyer_or_seller == "buyer":
+        description_message = "Please enter the description of what you want to buy:"
+    elif buyer_or_seller == "seller":
+        description_message = "Please enter the item you want to sell:"
+
+    cancel_button = types.KeyboardButton("⏪ Back")
+    markup = types.ReplyKeyboardMarkup(row_width=1, resize_keyboard=True)
+    markup.add(cancel_button)
+
+    bot.send_message(message.chat.id, description_message, reply_markup=markup)
+
+
+@bot.message_handler(func=lambda message: True)
+def message_handler(message):
+    global item_description, buyer_or_seller, amount
+
+    if message.text and message.text.strip() != '':
+        if message.text.strip().lower() == "⏪ Back":
+            if not buyer_or_seller:
+                start_escrow_handler(message)  # Go back to the accept/decline step
+            else:
+                buyer_seller_handler(message)  # Go back to the buyer/seller step
+            return
+
+        if not item_description:
+            item_description = message.text.strip()
+
+            amount_message = "Please enter the amount in USD (excluding escrow fees):"
+            cancel_button = types.KeyboardButton("⏪ Back")
+            markup = types.ReplyKeyboardMarkup(row_width=1, resize_keyboard=True)
+            markup.add(cancel_button)
+
+            bot.send_message(message.chat.id, amount_message, reply_markup=markup)
+
+        elif not buyer_or_seller:
+            buyer_button = types.KeyboardButton("Buyer")
+            seller_button = types.KeyboardButton("Seller")
+            markup = types.ReplyKeyboardMarkup(row_width=1, resize_keyboard=True)
+            markup.add(buyer_button, seller_button)
+
+            role_message = "Are you the buyer or seller?"
+            bot.send_message(message.chat.id, role_message, reply_markup=markup)
+
+        elif buyer_or_seller == "buyer" and amount == 0:
+            try:
+                amount = float(message.text.strip())
+                total_amount = amount + (amount * 0.05)  # Calculate total amount with 5% fee
+                receipt_message = f"Your item: <b>{item_description}</b>\n" \
+                                  f"Amount: <b>${amount}</b>\n" \
+                                  f"Fee (5%): <b>${amount * 0.05}</b>\n" \
+                                  f"Total amount: <b>${total_amount}</b>"
+
+                pay_button = types.InlineKeyboardButton("Pay", callback_data='pay')
+                markup = types.InlineKeyboardMarkup().add(pay_button)
+
+                bot.send_message(message.chat.id, receipt_message, parse_mode='HTML', reply_markup=markup)
+
+                # Send the receipt and username to the group chat
+                group_receipt_message = f"New Escrow:\n\n" \
+                                        f"Item: {item_description}\n" \
+                                        f"Amount: ${amount}\n" \
+                                        f"Fee (5%): ${amount * 0.05}\n" \
+                                        f"Total amount: ${total_amount}\n" \
+                                        f"Username: {message.from_user.username}"
+                bot.send_message(group_chat_id, group_receipt_message)
+
+                # Reset the variables for the next escrow
+                item_description = ""
+                buyer_or_seller = ""
+                amount = 0
+
+            except ValueError:
+                bot.send_message(message.chat.id, "Invalid amount. Please enter a valid number.")
+
+        elif buyer_or_seller == "seller":
+            try:
+                amount = float(message.text.strip())
+                total_amount = amount + (amount * 0.05)  # Calculate total amount with 5% fee
+                receipt_message = f"Your item: <b>{item_description}</b>\n" \
+                                  f"Amount: <b>${amount}</b>\n" \
+                                  f"Fee (5%): <b>${amount * 0.05}</b>\n" \
+                                  f"Total amount: <b>${total_amount}</b>"
+
+                pay_button = types.InlineKeyboardButton("Pay", callback_data='pay')
+                markup = types.InlineKeyboardMarkup().add(pay_button)
+
+                bot.send_message(message.chat.id, receipt_message, parse_mode='HTML', reply_markup=markup)
+
+                # Send the receipt and username to the group chat
+                group_receipt_message = f"New Escrow:\n\n" \
+                                        f"Item: {item_description}\n" \
+                                        f"Amount: ${amount}\n" \
+                                        f"Fee (5%): ${amount * 0.05}\n" \
+                                        f"Total amount: ${total_amount}\n" \
+                                        f"Username: {message.from_user.username}"
+                bot.send_message(group_chat_id, group_receipt_message)
+
+                # Reset the variables for the next escrow
+                item_description = ""
+                buyer_or_seller = ""
+                amount = 0
+
+            except ValueError:
+                bot.send_message(message.chat.id, "Invalid amount. Please enter a valid number.")
+
+
+@bot.callback_query_handler(func=lambda call: call.data == 'pay')
+def pay_callback_handler(call):
+    bot.answer_callback_query(call.id, "Payment processing...")  # Display a processing message
+
+
+# Start the bot
+bot.polling()
